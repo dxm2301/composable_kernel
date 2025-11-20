@@ -1,0 +1,4 @@
+add_custom_target(example_depthwise_conv_fwd)
+
+add_example_executable(example_depthwise_conv_fwd_dl_fp16 depthwise_conv_fwd_dl_fp16.cpp)
+add_example_dependencies(example_depthwise_conv_fwd example_depthwise_conv_fwd_dl_fp16)
