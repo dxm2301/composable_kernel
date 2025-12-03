@@ -1,0 +1,6 @@
+set(EXAMPLE_DEPTHWISE_CONV_COMPILE_OPTIONS)
+list(APPEND EXAMPLE_DEPTHWISE_CONV_COMPILE_OPTIONS -mllvm -enable-noalias-to-md-conversion=0)
+
+add_executable(tile_example_depthwise_conv_fwd EXCLUDE_FROM_ALL depthwise_conv_fwd.cpp)
+target_compile_options(tile_example_depthwise_conv_fwd PRIVATE ${EXAMPLE_DEPTHWISE_CONV_COMPILE_OPTIONS})
+

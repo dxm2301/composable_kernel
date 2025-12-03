@@ -27,13 +27,17 @@
 
 template <ck::index_t NDimSpatial>
 using DeviceConvFwdFactory = std::tuple<
+    // ==================== FilterSize = 5 ====================
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<14, 28>, 5, ck::Tuple<S<1,1>, S<2,2>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 2, 2, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 5, ck::Tuple<S<1,1>, S<1,1>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 1, 1, 1, 1, 1, false>,
 
+    // ==================== FilterSize = 3 ====================
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 3, ck::Tuple<S<1,1>, S<1,1>, S<1,1>>, InElementOp, WeiElementOp, OutElementOp, 8, 2, 2, 2, 2, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 5, ck::Tuple<S<1,1>, S<1,1>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 8, 2, 2, 2, 2, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 5, ck::Tuple<S<1,1>, S<2,2>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 4, 2, 2, 2, 2, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 3, ck::Tuple<S<1,1>, S<1,1>, S<1,1>>, InElementOp, WeiElementOp, OutElementOp, 8, 1, 4, 8, 8, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 3, ck::Tuple<S<1,1>, S<2,2>, S<1,1>>, InElementOp, WeiElementOp, OutElementOp, 2, 1, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 5, ck::Tuple<S<1,1>, S<1,1>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 1, 1, 4, 8, 8, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 5, ck::Tuple<S<1,1>, S<1,1>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 8, 1, 4, 8, 8, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<14, 28>, 3, ck::Tuple<S<1,1>, S<2,2>, S<1,1>>, InElementOp, WeiElementOp, OutElementOp, 1, 2, 4, 8, 8, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 32>, 5, ck::Tuple<S<1,1>, S<2,2>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 4, 1, 8, 8, 8, false>,
@@ -42,7 +46,45 @@ using DeviceConvFwdFactory = std::tuple<
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 3, ck::Tuple<S<1,1>, S<1,1>, S<1,1>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 3, ck::Tuple<S<1,1>, S<2,2>, S<1,1>>, InElementOp, WeiElementOp, OutElementOp, 2, 4, 4, 8, 8, false>,
     ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 5, ck::Tuple<S<1,1>, S<1,1>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 4, 4, 4, 8, 8, false>,
-    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 5, ck::Tuple<S<1,1>, S<2,2>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 5, ck::Tuple<S<1,1>, S<2,2>, S<2,2>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>,
+
+    // ==================== FilterSize = 7 (padding = 3) ====================
+    // Small tiles
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 7, ck::Tuple<S<1,1>, S<1,1>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 1, 1, 1, 1, 1, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 7, ck::Tuple<S<1,1>, S<1,1>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 8, 2, 2, 2, 2, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 7, ck::Tuple<S<1,1>, S<2,2>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 4, 2, 2, 2, 2, false>,
+    // Medium tiles
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 7, ck::Tuple<S<1,1>, S<1,1>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 1, 1, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 7, ck::Tuple<S<1,1>, S<1,1>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 8, 1, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 7, ck::Tuple<S<1,1>, S<2,2>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 2, 1, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<14, 28>, 7, ck::Tuple<S<1,1>, S<2,2>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 2, 2, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 32>, 7, ck::Tuple<S<1,1>, S<2,2>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 4, 1, 8, 8, 8, false>,
+    // Large tiles
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<28, 28>, 7, ck::Tuple<S<1,1>, S<1,1>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<28, 28>, 7, ck::Tuple<S<1,1>, S<1,1>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 8, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 7, ck::Tuple<S<1,1>, S<1,1>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 7, ck::Tuple<S<1,1>, S<1,1>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 4, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 7, ck::Tuple<S<1,1>, S<2,2>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 2, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 7, ck::Tuple<S<1,1>, S<2,2>, S<3,3>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>,
+
+    // ==================== FilterSize = 9 (padding = 4) ====================
+    // Small tiles
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 9, ck::Tuple<S<1,1>, S<1,1>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 1, 1, 1, 1, 1, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 9, ck::Tuple<S<1,1>, S<1,1>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 8, 2, 2, 2, 2, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<8, 8>, 9, ck::Tuple<S<1,1>, S<2,2>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 4, 2, 2, 2, 2, false>,
+    // Medium tiles
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 9, ck::Tuple<S<1,1>, S<1,1>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 1, 1, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 9, ck::Tuple<S<1,1>, S<1,1>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 8, 1, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 16>, 9, ck::Tuple<S<1,1>, S<2,2>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 2, 1, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<14, 28>, 9, ck::Tuple<S<1,1>, S<2,2>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 2, 2, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<16, 32>, 9, ck::Tuple<S<1,1>, S<2,2>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 4, 1, 8, 8, 8, false>,
+    // Large tiles
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<28, 28>, 9, ck::Tuple<S<1,1>, S<1,1>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<28, 28>, 9, ck::Tuple<S<1,1>, S<1,1>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 8, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 9, ck::Tuple<S<1,1>, S<1,1>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 9, ck::Tuple<S<1,1>, S<1,1>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 4, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 9, ck::Tuple<S<1,1>, S<2,2>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 2, 4, 4, 8, 8, false>,
+    ck::tensor_operation::device::DeviceGroupedConvFwdDlV5<NDimSpatial, 64, InKernelDataType, WeiKernelDataType, AccDataType, OutKernelDataType, S<32, 32>, 9, ck::Tuple<S<1,1>, S<2,2>, S<4,4>>, InElementOp, WeiElementOp, OutElementOp, 1, 4, 4, 8, 8, false>
 >;
 
 template <ck::index_t NDimSpatial>
@@ -238,6 +280,10 @@ bool run_depthwise_conv_fwd_dl(const ExecutionConfig& config,
     {
         std::cout << " [PASS - Verified Correct]";
     }
+    else
+    {
+        std::cout << " [NOT VERIFIED]";
+    }
     
     std::cout << ", " << best_type_string << std::endl;
 
@@ -253,6 +299,15 @@ bool run_depthwise_conv_fwd_dl_example(int argc, char* argv[])
     {
         return false;
     }
+
+    // Print command line for log parsing
+    std::cout << "=== Command ===" << std::endl;
+    for(int i = 0; i < argc; ++i)
+    {
+        if(i > 0) std::cout << " ";
+        std::cout << argv[i];
+    }
+    std::cout << std::endl;
 
     switch(conv_param.num_dim_spatial_)
     {
