@@ -97,10 +97,12 @@ using HostConvFwdInstance = ck::tensor_operation::host::ReferenceConvFwd<NDimSpa
                                                                          PassThrough>;
 
 template <ck::index_t NDimSpatial>
-bool run_depthwise_conv_fwd_dl(const ExecutionConfig& config,
+bool run_depthwise_conv_fwd(const ExecutionConfig& config,
                           const ck::utils::conv::ConvParam& conv_param)
 {
     static_assert(1 <= NDimSpatial && NDimSpatial <= 3, "Unsupported NDimSpatial");
+    
+    const bool debug_mode = config.is_debug_mode();
     
     const auto in_g_n_c_wis_desc  = make_input_descriptor(conv_param);
     const auto wei_g_k_c_xs_desc  = make_weight_descriptor(conv_param);
@@ -111,9 +113,14 @@ bool run_depthwise_conv_fwd_dl(const ExecutionConfig& config,
     Tensor<OutUserDataType> out_host(out_g_n_k_wos_desc);
     Tensor<OutKernelDataType> out_device(out_g_n_k_wos_desc);
 
-    std::cout << "in: " << in.mDesc << std::endl;
-    std::cout << "wei: " << wei.mDesc << std::endl;
-    std::cout << "out: " << out_host.mDesc << std::endl;
+    // Debug mode: print detailed tensor info
+    if(debug_mode)
+    {
+        std::cout << "\n=== Debug Info ===" << std::endl;
+        std::cout << "in: " << in.mDesc << std::endl;
+        std::cout << "wei: " << wei.mDesc << std::endl;
+        std::cout << "out: " << out_host.mDesc << std::endl;
+    }
 
     switch(config.init_method)
     {
@@ -130,9 +137,14 @@ bool run_depthwise_conv_fwd_dl(const ExecutionConfig& config,
     DeviceMem in_device_buf(sizeof(InKernelDataType) * in.mDesc.GetElementSpaceSize());
     DeviceMem wei_device_buf(sizeof(WeiKernelDataType) * wei.mDesc.GetElementSpaceSize());
     DeviceMem out_device_buf(sizeof(OutKernelDataType) * out_device.mDesc.GetElementSpaceSize());
-    std::cout << "in elem_size: " << in.mDesc.GetElementSpaceSize() << std::endl;
-    std::cout << "wei elem_size: " << wei.mDesc.GetElementSpaceSize() << std::endl;
-    std::cout << "out elem_size: " << out_device.mDesc.GetElementSpaceSize() << std::endl;
+    
+    // Debug mode: print element sizes
+    if(debug_mode)
+    {
+        std::cout << "in elem_size: " << in.mDesc.GetElementSpaceSize() << std::endl;
+        std::cout << "wei elem_size: " << wei.mDesc.GetElementSpaceSize() << std::endl;
+        std::cout << "out elem_size: " << out_device.mDesc.GetElementSpaceSize() << std::endl;
+    }
 
 #ifdef BUILD_INT4_EXAMPLE
     const Tensor<InKernelDataType> in_converted(in);
@@ -192,10 +204,10 @@ bool run_depthwise_conv_fwd_dl(const ExecutionConfig& config,
                                                   WeiElementOp{},
                                                   OutElementOp{});
         ref_invoker.Run(ref_argument);
-        std::cout << "Reference result computed on CPU" << std::endl;
+        if(debug_mode) std::cout << "Reference result computed on CPU" << std::endl;
     }
     
-    std::cout << "\n=== Testing all instances ===" << std::endl;
+    if(debug_mode) std::cout << "\n=== Testing all instances ===" << std::endl;
     
     ck::static_for<0, std::tuple_size_v<DeviceConvFwdFactory<NDimSpatial>>, 1>{}([&](auto i) {
         using ConvInstance = std::tuple_element_t<i, DeviceConvFwdFactory<NDimSpatial>>;
@@ -247,9 +259,13 @@ bool run_depthwise_conv_fwd_dl(const ExecutionConfig& config,
                 status = is_correct ? " [PASS]" : " [FAIL]";
             }
             
-            std::cout << "[Instance " << i << "]" << status << " " 
-                      << avg_time << " ms, " << tflops << " TFlops, " 
-                      << gb_per_sec << " GB/s, " << conv.GetTypeString();
+            // Debug mode: print each instance result
+            if(debug_mode)
+            {
+                std::cout << "[Instance " << i << "]" << status << " " 
+                          << avg_time << " ms, " << tflops << " TFlops, " 
+                          << gb_per_sec << " GB/s, " << conv.GetTypeString() << std::endl;
+            }
             
             // Only consider correct results for best performance
             if(is_correct && avg_time < best_time) {
@@ -270,27 +286,72 @@ bool run_depthwise_conv_fwd_dl(const ExecutionConfig& config,
     
     float best_tflops = static_cast<float>(flop) / 1.E9 / best_time;
     float best_gb_per_sec = num_btype / 1.E6 / best_time;
-    
-    std::cout << "\n=== Best Performance ===" << std::endl;
-    std::cout << "[Instance " << best_idx << "] " 
-             << best_time << " ms, " << best_tflops << " TFlops, " 
-             << best_gb_per_sec << " GB/s";
-    
+    float best_gflops = best_tflops * 1000.0f;  // TFlops -> GFlops for MIOpen format
+
+    // Debug mode: print detailed best performance
+    if(debug_mode)
+    {
+        std::cout << "\n=== Best Performance ===" << std::endl;
+        std::cout << "[Instance " << best_idx << "] " 
+                 << best_time << " ms, " << best_tflops << " TFlops, " 
+                 << best_gb_per_sec << " GB/s";
+        if(config.do_verification)
+        {
+            std::cout << " [PASS - Verified Correct]";
+        }
+        else
+        {
+            std::cout << " [NOT VERIFIED]";
+        }
+        std::cout << ", " << best_type_string << std::endl;
+    }
+
+    // Extract parameters from conv_param (for stats output)
+    const auto G = conv_param.G_;
+    const auto N = conv_param.N_;
+    const auto Y = conv_param.filter_spatial_lengths_[0];
+    const auto X = conv_param.filter_spatial_lengths_[1];
+    const auto Ho = conv_param.output_spatial_lengths_[0];
+    const auto Wo = conv_param.output_spatial_lengths_[1];
+    const auto stride_h = conv_param.conv_filter_strides_[0];
+
+    // Calculate bytes read/written for stats line
+    std::size_t bytes_read = (in.mDesc.GetElementSpaceSize() + wei.mDesc.GetElementSpaceSize()) * sizeof(InKernelDataType);
+    std::size_t bytes_written = out_device.mDesc.GetElementSpaceSize() * sizeof(OutKernelDataType);
+
+    // Build conv name for stats line
+    std::ostringstream conv_name;
+    conv_name << "fwd-conv" << Y << "x" << X << "u" << stride_h;
+
+    // Print CK algorithm/solution info (MIOpen-compatible)
+    std::cout << "CK Forward Conv. Solution: Instance " << best_idx 
+              << ", " << best_type_string << std::endl;
+
+    // Print GPU kernel time (MIOpen-compatible)
+    std::cout << "GPU Kernel Time Forward Conv. Elapsed: " 
+              << std::fixed << std::setprecision(6) << best_time << " ms (best)" << std::endl;
+
+    // Print stats header and data (MIOpen-compatible format)
+    std::cout << "stats: name, n, c, ho, wo, x, y, k, flopCnt, bytesRead, bytesWritten, GFLOPs, GB/s, timeMs" << std::endl;
+    std::cout << "stats: " << conv_name.str() << ", "
+              << N << ", " << G << ", " << Ho << ", " << Wo << ", "
+              << X << ", " << Y << ", " << G << ", "
+              << flop << ", " << bytes_read << ", " << bytes_written << ", "
+              << std::fixed << std::setprecision(0) << best_gflops << ", "
+              << std::setprecision(0) << best_gb_per_sec << ", "
+              << std::setprecision(6) << best_time << std::endl;
+
+    // Print verification result (MIOpen-compatible format)
     if(config.do_verification)
     {
-        std::cout << " [PASS - Verified Correct]";
+        std::cout << "Forward Convolution Verifies OK on GPU reference (instance=" 
+                  << best_idx << ")" << std::endl;
     }
-    else
-    {
-        std::cout << " [NOT VERIFIED]";
-    }
-    
-    std::cout << ", " << best_type_string << std::endl;
 
     return true;
 }
 
-bool run_depthwise_conv_fwd_dl_example(int argc, char* argv[])
+bool run_depthwise_conv_fwd_example(int argc, char* argv[])
 {
     ExecutionConfig config;
     ck::utils::conv::ConvParam conv_param = DefaultConvParam;
@@ -300,8 +361,7 @@ bool run_depthwise_conv_fwd_dl_example(int argc, char* argv[])
         return false;
     }
 
-    // Print command line for log parsing
-    std::cout << "=== Command ===" << std::endl;
+    // Print command line (always shown)
     for(int i = 0; i < argc; ++i)
     {
         if(i > 0) std::cout << " ";
@@ -309,12 +369,17 @@ bool run_depthwise_conv_fwd_dl_example(int argc, char* argv[])
     }
     std::cout << std::endl;
 
+    // Print environment info (MIOpen-compatible)
+    // PRNG seed: use MIOPEN_DEBUG_PRNG_SEED env var if set, otherwise time-based
+    std::cout << "PRNG seed: " << SystemInfo::get_prng_seed() << std::endl;
+    std::cout << SystemInfo::get_full_env_string() << std::endl;
+
     switch(conv_param.num_dim_spatial_)
     {
     case 1: 
         std::cout << "1D depthwise conv not supported by v4 implementation, only 2D" << std::endl;
         return false;
-    case 2: return run_depthwise_conv_fwd_dl<2>(config, conv_param);
+    case 2: return run_depthwise_conv_fwd<2>(config, conv_param);
     case 3: 
         std::cout << "3D depthwise conv not supported by v4 implementation, only 2D" << std::endl;
         return false;

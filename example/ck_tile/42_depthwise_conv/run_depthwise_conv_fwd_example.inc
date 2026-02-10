@@ -5,6 +5,7 @@
 
 #include "depthwise_conv_utils.hpp"
 #include "depthwise_conv_fwd_invoker.hpp"
+#include "ck_tile/host/system_info.hpp"
 #include <iomanip>
 
 /**
@@ -44,34 +45,35 @@ void depthwise_conv_fwd_cpu_reference(
     ck_tile::index_t pad_w)
 {
     // For depthwise conv: C=1, K=1 per group
+    // Use int64_t for strides to avoid overflow with large tensors (e.g., G*N*H*W > INT32_MAX)
     // Strides from GetGNCHWStrides (C=1):
     //   in_g_stride = C*H*W = H*W
     //   in_n_stride = G*C*H*W = G*H*W
     //   in_c_stride = 1 (not used since C=1)
     //   in_h_stride = W*C = W
     //   in_w_stride = C = 1
-    const ck_tile::index_t in_g_stride = Hi * Wi;
-    const ck_tile::index_t in_n_stride = G * Hi * Wi;
-    const ck_tile::index_t in_h_stride = Wi;
-    const ck_tile::index_t in_w_stride = 1;
+    const int64_t in_g_stride = static_cast<int64_t>(Hi) * Wi;
+    const int64_t in_n_stride = static_cast<int64_t>(G) * Hi * Wi;
+    const int64_t in_h_stride = Wi;
+    const int64_t in_w_stride = 1;
 
     // Weight strides from GetGKCYXStrides (C=K=1):
     //   wei_g_stride = C*Y*X = Y*X
     //   wei_y_stride = X
     //   wei_x_stride = 1
-    const ck_tile::index_t wei_g_stride = Y * X;
-    const ck_tile::index_t wei_y_stride = X;
-    const ck_tile::index_t wei_x_stride = 1;
+    const int64_t wei_g_stride = static_cast<int64_t>(Y) * X;
+    const int64_t wei_y_stride = X;
+    const int64_t wei_x_stride = 1;
 
     // Output strides from GetGNCHWStrides (K=1):
     //   out_g_stride = K*Ho*Wo = Ho*Wo
     //   out_n_stride = G*K*Ho*Wo = G*Ho*Wo
     //   out_h_stride = Wo*K = Wo
     //   out_w_stride = K = 1
-    const ck_tile::index_t out_g_stride = Ho * Wo;
-    const ck_tile::index_t out_n_stride = G * Ho * Wo;
-    const ck_tile::index_t out_h_stride = Wo;
-    const ck_tile::index_t out_w_stride = 1;
+    const int64_t out_g_stride = static_cast<int64_t>(Ho) * Wo;
+    const int64_t out_n_stride = static_cast<int64_t>(G) * Ho * Wo;
+    const int64_t out_h_stride = Wo;
+    const int64_t out_w_stride = 1;
 
     for(ck_tile::index_t g = 0; g < G; ++g)
     {
@@ -92,12 +94,15 @@ void depthwise_conv_fwd_cpu_reference(
 
                             if(hi >= 0 && hi < Hi && wi >= 0 && wi < Wi)
                             {
-                                // Input index using strides
-                                ck_tile::index_t in_idx = g * in_g_stride + n * in_n_stride +
-                                                          hi * in_h_stride + wi * in_w_stride;
+                                // Input index using strides (int64_t to avoid overflow)
+                                int64_t in_idx = static_cast<int64_t>(g) * in_g_stride + 
+                                                 static_cast<int64_t>(n) * in_n_stride +
+                                                 static_cast<int64_t>(hi) * in_h_stride + 
+                                                 static_cast<int64_t>(wi) * in_w_stride;
                                 // Weight index using strides
-                                ck_tile::index_t wei_idx = g * wei_g_stride +
-                                                           y * wei_y_stride + x * wei_x_stride;
+                                int64_t wei_idx = static_cast<int64_t>(g) * wei_g_stride +
+                                                  static_cast<int64_t>(y) * wei_y_stride + 
+                                                  static_cast<int64_t>(x) * wei_x_stride;
 
                                 acc += static_cast<AccDataType>(p_in[in_idx]) *
                                        static_cast<AccDataType>(p_wei[wei_idx]);
@@ -105,9 +110,11 @@ void depthwise_conv_fwd_cpu_reference(
                         }
                     }
 
-                    // Output index using strides
-                    ck_tile::index_t out_idx = g * out_g_stride + n * out_n_stride +
-                                               ho * out_h_stride + wo * out_w_stride;
+                    // Output index using strides (int64_t to avoid overflow)
+                    int64_t out_idx = static_cast<int64_t>(g) * out_g_stride + 
+                                      static_cast<int64_t>(n) * out_n_stride +
+                                      static_cast<int64_t>(ho) * out_h_stride + 
+                                      static_cast<int64_t>(wo) * out_w_stride;
                     p_out[out_idx] = static_cast<OutDataType>(acc);
                 }
             }
@@ -128,7 +135,10 @@ int run_depthwise_conv_fwd_example(int argc, char* argv[])
         return -1;
 
     // Parse arguments
-    const bool do_verification    = arg_parser.get_int("v");
+    // -v: 0=no verify, 1=standard mode (MIOpen-like), 2=debug mode (verbose)
+    const int verbosity           = arg_parser.get_int("v");
+    const bool do_verification    = (verbosity > 0);
+    const bool debug_mode         = (verbosity >= 2);
     const int warmup              = arg_parser.get_int("warmup");
     const int repeat              = arg_parser.get_int("repeat");
     const std::string timer_type  = arg_parser.get_str("timer");
@@ -185,8 +195,7 @@ int run_depthwise_conv_fwd_example(int argc, char* argv[])
     const auto wei_strides = ck_tile::GetGKCYXStrides(G, K, C, Y, X);
     const auto out_strides = ck_tile::GetGNCHWStrides(G, N, K, Ho, Wo);
 
-    // Print command line equivalent at the beginning (like CK format)
-    std::cout << "\n=== Command ===" << std::endl;
+    // Print command line (always shown)
     std::cout << "./bin/tile_example_depthwise_conv_fwd"
               << " -G=" << G << " -N=" << N << " -H=" << H << " -W=" << W
               << " -Y=" << Y << " -X=" << X
@@ -194,28 +203,40 @@ int run_depthwise_conv_fwd_example(int argc, char* argv[])
               << " -dilation_h=" << dilation_h << " -dilation_w=" << dilation_w
               << " -pad_h=" << pad_h << " -pad_w=" << pad_w
               << " -prec=" << prec_str
-              << " -v=" << (do_verification ? 1 : 0) << std::endl;
+              << " -v=" << verbosity << std::endl;
 
-    // Print dimension info in CK format
-    std::cout << "in: dim 5, lengths {" << G << ", " << N << ", " << C << ", " << H << ", " << W << "}, "
-              << "strides {" << in_strides[0] << ", " << in_strides[1] << ", " << in_strides[2] 
-              << ", " << in_strides[3] << ", " << in_strides[4] << "}" << std::endl;
-    std::cout << "wei: dim 5, lengths {" << G << ", " << K << ", " << C << ", " << Y << ", " << X << "}, "
-              << "strides {" << wei_strides[0] << ", " << wei_strides[1] << ", " << wei_strides[2]
-              << ", " << wei_strides[3] << ", " << wei_strides[4] << "}" << std::endl;
-    std::cout << "out: dim 5, lengths {" << G << ", " << N << ", " << K << ", " << Ho << ", " << Wo << "}, "
-              << "strides {" << out_strides[0] << ", " << out_strides[1] << ", " << out_strides[2]
-              << ", " << out_strides[3] << ", " << out_strides[4] << "}" << std::endl;
+    // Print environment info (MIOpen-compatible)
+    // PRNG seed: use MIOPEN_DEBUG_PRNG_SEED env var if set, otherwise time-based
+    std::cout << "PRNG seed: " << ck_tile::SystemInfo::get_prng_seed() << std::endl;
+    std::cout << ck_tile::SystemInfo::get_full_env_string() << std::endl;
+
+    // Debug mode: print detailed dimension info
+    if(debug_mode)
+    {
+        std::cout << "\n=== Debug Info ===" << std::endl;
+        std::cout << "in: dim 5, lengths {" << G << ", " << N << ", " << C << ", " << H << ", " << W << "}, "
+                  << "strides {" << in_strides[0] << ", " << in_strides[1] << ", " << in_strides[2] 
+                  << ", " << in_strides[3] << ", " << in_strides[4] << "}" << std::endl;
+        std::cout << "wei: dim 5, lengths {" << G << ", " << K << ", " << C << ", " << Y << ", " << X << "}, "
+                  << "strides {" << wei_strides[0] << ", " << wei_strides[1] << ", " << wei_strides[2]
+                  << ", " << wei_strides[3] << ", " << wei_strides[4] << "}" << std::endl;
+        std::cout << "out: dim 5, lengths {" << G << ", " << N << ", " << K << ", " << Ho << ", " << Wo << "}, "
+                  << "strides {" << out_strides[0] << ", " << out_strides[1] << ", " << out_strides[2]
+                  << ", " << out_strides[3] << ", " << out_strides[4] << "}" << std::endl;
+    }
 
     // Calculate sizes (GNCHW layout for input/output, GKCYX for weight)
     const std::size_t input_size = static_cast<std::size_t>(G) * N * C * H * W;
     const std::size_t weight_size = static_cast<std::size_t>(G) * K * C * Y * X;
     const std::size_t output_size = static_cast<std::size_t>(G) * N * K * Ho * Wo;
 
-    // Print element sizes in CK format
-    std::cout << "in elem_size: " << input_size << std::endl;
-    std::cout << "wei elem_size: " << weight_size << std::endl;
-    std::cout << "out elem_size: " << output_size << std::endl;
+    // Print element sizes (debug mode only)
+    if(debug_mode)
+    {
+        std::cout << "in elem_size: " << input_size << std::endl;
+        std::cout << "wei elem_size: " << weight_size << std::endl;
+        std::cout << "out elem_size: " << output_size << std::endl;
+    }
 
     // Allocate host memory
     ck_tile::HostTensor<InDataType> in_host({input_size});
@@ -319,7 +340,7 @@ int run_depthwise_conv_fwd_example(int argc, char* argv[])
                     }
                 }
             }
-            std::cout << "Input: column-wise (w % 64), Weight: spatial pattern (fh*X+fw)" << std::endl;
+            if(debug_mode) std::cout << "Input: column-wise (w % 64), Weight: spatial pattern (fh*X+fw)" << std::endl;
         }
         break;
     default:
@@ -329,8 +350,11 @@ int run_depthwise_conv_fwd_example(int argc, char* argv[])
         break;
     }
     
-    std::cout << "Init method: " << init_method 
-              << " (0=zero, 1=int[-5,5], 2=rand, 3=col+w1, 4=row+w1, 5=col+wspatial)" << std::endl;
+    if(debug_mode)
+    {
+        std::cout << "Init method: " << init_method 
+                  << " (0=zero, 1=int[-5,5], 2=rand, 3=col+w1, 4=row+w1, 5=col+wspatial)" << std::endl;
+    }
 
     // Compute CPU reference if verification is enabled
     if(do_verification)
@@ -343,7 +367,7 @@ int run_depthwise_conv_fwd_example(int argc, char* argv[])
             stride_h, stride_w,
             dilation_h, dilation_w,
             pad_h, pad_w);
-        std::cout << "Reference result computed on CPU" << std::endl;
+        if(debug_mode) std::cout << "Reference result computed on CPU" << std::endl;
     }
 
     // Allocate device memory
@@ -383,13 +407,14 @@ int run_depthwise_conv_fwd_example(int argc, char* argv[])
     args.out_strides = out_strides;
 
     // Stream config
+    // log_level_: 0 = silent, 1 = verbose (debug mode only)
     ck_tile::stream_config stream_cfg{
-        nullptr,        // stream_id_
-        true,           // time_kernel_
-        1,              // log_level_
-        warmup,         // cold_niters_
-        repeat,         // nrepeat_
-        true            // is_gpu_timer_
+        nullptr,                    // stream_id_
+        true,                       // time_kernel_
+        debug_mode ? 1 : 0,         // log_level_: only show instance details in debug mode
+        warmup,                     // cold_niters_
+        repeat,                     // nrepeat_
+        true                        // is_gpu_timer_
     };
 
     (void)timer_type;
@@ -419,19 +444,62 @@ int run_depthwise_conv_fwd_example(int argc, char* argv[])
 
     float tflops    = static_cast<float>(flop) / 1.E9 / avg_time;
     float gb_per_sec = static_cast<float>(num_byte) / 1.E6 / avg_time;
+    float gflops    = tflops * 1000.0f;  // TFlops -> GFlops for MIOpen format
 
-    // Print final result in CK-style format (matching original CK)
-    // Example: [Instance 11] 0.414615 ms, 5.01887 TFlops, 1115.32 GB/s [PASS - Verified Correct], DeviceGroupedConvFwdDlV5<...>
-    std::cout << "\n=== Best Performance ===" << std::endl;
-    std::cout << "[Instance " << best_instance_idx << "] " 
-              << std::fixed << std::setprecision(6) << avg_time << " ms, "
-              << std::setprecision(5) << tflops << " TFlops, "
-              << std::setprecision(3) << gb_per_sec << " GB/s";
+    // Debug mode: print detailed best performance info
+    if(debug_mode)
+    {
+        std::cout << "\n=== Best Performance ===" << std::endl;
+        std::cout << "[Instance " << best_instance_idx << "] " 
+                  << std::fixed << std::setprecision(6) << avg_time << " ms, "
+                  << std::setprecision(5) << tflops << " TFlops, "
+                  << std::setprecision(3) << gb_per_sec << " GB/s";
+        if(do_verification)
+        {
+            std::cout << " [" << (is_verified ? "PASS - Verified Correct" : "FAIL") << "]";
+        }
+        std::cout << ", " << best_config << std::endl;
+    }
+
+    // Calculate bytes read/written for stats line
+    std::size_t bytes_read = (input_size + weight_size) * sizeof(InDataType);
+    std::size_t bytes_written = output_size * sizeof(OutDataType);
+
+    // Build conv name for stats line: fwd-conv{Y}x{X}u{stride}
+    std::ostringstream conv_name;
+    conv_name << "fwd-conv" << Y << "x" << X << "u" << stride_h;
+
+    // Print CK algorithm/solution info (MIOpen-compatible)
+    std::cout << "CK Forward Conv. Solution: Instance " << best_instance_idx 
+              << ", " << best_config << std::endl;
+
+    // Print GPU kernel time (MIOpen-compatible)
+    std::cout << "GPU Kernel Time Forward Conv. Elapsed: " 
+              << std::fixed << std::setprecision(6) << avg_time << " ms (best)" << std::endl;
+
+    // Print stats header and data (MIOpen-compatible format)
+    std::cout << "stats: name, n, c, ho, wo, x, y, k, flopCnt, bytesRead, bytesWritten, GFLOPs, GB/s, timeMs" << std::endl;
+    std::cout << "stats: " << conv_name.str() << ", "
+              << N << ", " << G << ", " << Ho << ", " << Wo << ", "
+              << X << ", " << Y << ", " << G << ", "
+              << flop << ", " << bytes_read << ", " << bytes_written << ", "
+              << std::fixed << std::setprecision(0) << gflops << ", "
+              << std::setprecision(0) << gb_per_sec << ", "
+              << std::setprecision(6) << avg_time << std::endl;
+
+    // Print verification result (MIOpen-compatible format)
     if(do_verification)
     {
-        std::cout << " [" << (is_verified ? "PASS - Verified Correct" : "FAIL") << "]";
+        if(is_verified)
+        {
+            std::cout << "Forward Convolution Verifies OK on GPU reference (instance=" 
+                      << best_instance_idx << ")" << std::endl;
+        }
+        else
+        {
+            std::cout << "Forward Convolution FAILED (instance=" << best_instance_idx << ")" << std::endl;
+        }
     }
-    std::cout << ", " << best_config << std::endl;
 
     return is_verified ? 0 : 1;
 }

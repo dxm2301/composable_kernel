@@ -9,9 +9,7 @@
 
 namespace ck_tile {
 
-/**
- * @brief Host-side arguments for depthwise convolution forward pass.
- */
+/// @brief Host-side arguments for depthwise convolution forward pass.
 struct DepthwiseConvFwdHostArgs
 {
     const void* p_in;   // Input tensor pointer
@@ -46,9 +44,7 @@ struct DepthwiseConvFwdHostArgs
     std::array<index_t, 5> out_strides;  // [g_stride, n_stride, k_stride, h_stride, w_stride]
 };
 
-/**
- * @brief Device-side kernel arguments for depthwise convolution.
- */
+/// @brief Device-side kernel arguments for depthwise convolution.
 template <typename Traits_>
 struct DepthwiseConvFwdKernelArgs
 {
@@ -86,16 +82,7 @@ struct DepthwiseConvFwdKernelArgs
     index_t out_w_stride;
 };
 
-/**
- * @brief Depthwise convolution forward kernel.
- *
- * This kernel implements depthwise convolution where each input channel is
- * convolved with a separate filter. The implementation is optimized for
- * spatial locality using tile-based processing with LDS caching.
- *
- * @tparam Traits_      Traits class defining types and compile-time constants
- * @tparam Pipeline_    Pipeline class implementing the actual computation
- */
+/// @brief Depthwise convolution forward kernel.
 template <typename Traits_, typename Pipeline_>
 struct DepthwiseConvFwdKernel
 {
@@ -118,33 +105,17 @@ struct DepthwiseConvFwdKernel
     // LDS size
     static constexpr index_t LdsSize = Traits::LdsSize;
 
-    /**
-     * @brief Get the required shared memory size.
-     */
     CK_TILE_HOST_DEVICE static constexpr index_t GetSmemSize() { return LdsSize; }
 
-    /**
-     * @brief Get the block size.
-     */
     CK_TILE_HOST_DEVICE static constexpr auto BlockSize_() { return dim3(BlockSize); }
 
-    /**
-     * @brief Calculate grid size based on problem dimensions.
-     *
-     * Grid layout:
-     *   - grid.x = number of groups (G)
-     *   - grid.y = number of batch groups (N / NBatch)
-     *   - grid.z = 1
-     */
+    // Grid layout: grid.x = G, grid.y = ceil(N / NBatch)
     CK_TILE_HOST static auto GridSize(index_t G, index_t N)
     {
         const index_t num_batch_groups = integer_divide_ceil(N, NBatch);
         return dim3(G, num_batch_groups, 1);
     }
 
-    /**
-     * @brief Create kernel arguments from host arguments.
-     */
     CK_TILE_HOST static KernelArgs MakeKernelArgs(const DepthwiseConvFwdHostArgs& args)
     {
         KernelArgs kargs;
@@ -184,9 +155,6 @@ struct DepthwiseConvFwdKernel
         return kargs;
     }
 
-    /**
-     * @brief Check if the arguments are supported.
-     */
     CK_TILE_HOST static bool IsSupportedArgument(const DepthwiseConvFwdHostArgs& args)
     {
         // Check depthwise constraint: C=1, K=1
@@ -259,12 +227,16 @@ struct DepthwiseConvFwdKernel
             }
         }
 
+        // Reject cases where input spatial size is smaller than kernel size.
+        // These edge cases can cause incorrect results due to boundary handling issues.
+        if(args.Hi < args.Y || args.Wi < args.X)
+        {
+            return false;
+        }
+
         return true;
     }
 
-    /**
-     * @brief Device-side kernel operator.
-     */
     CK_TILE_DEVICE void operator()(KernelArgs kargs) const
     {
         // Get block indices

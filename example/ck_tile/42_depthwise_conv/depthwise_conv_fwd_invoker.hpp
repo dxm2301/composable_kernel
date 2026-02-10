@@ -254,7 +254,7 @@ private:
         if(verify_info.p_out_dev != nullptr && verify_info.p_out_host != nullptr)
         {
             // Synchronize stream
-            hipStreamSynchronize(s.stream_id_);
+            (void)hipStreamSynchronize(s.stream_id_);
             
             // Copy result back to host for dump
             verify_info.p_out_dev->FromDevice(verify_info.p_out_host->data());
@@ -321,9 +321,9 @@ private:
             // Copy result back to host
             verify_info.p_out_dev->FromDevice(verify_info.p_out_host->data());
 
-            // Verify against reference (print errors only for first failed instance)
+            // Verify against reference (print errors only in debug mode, and only for first failed instance)
             static bool first_error_printed = false;
-            bool print_errors = !first_error_printed;
+            bool print_errors = (s.log_level_ > 0) && !first_error_printed;
             
             result.is_verified = verify_gpu_result<OutDataType>(
                 verify_info.p_out_host->data(),
@@ -356,7 +356,7 @@ private:
     /**
      * @brief Run all predefined instances and select the best one.
      *
-     * Instance definitions exactly match original CK from run_depthwise_conv_fwd_dl_example.inc
+     * Instance definitions exactly match original CK from run_depthwise_conv_fwd_example.inc
      */
     // Returns: (best_time, best_config, is_verified, best_instance_idx)
     template <typename InDataType,
@@ -406,58 +406,90 @@ private:
                                     TileH, TileW, Filter, 1, 1, StrH, StrW, Pad, Pad, NBatch, SubH, SubW, InVec, OutVec>( \
                        args, s, verify_info, instance_count, flop, num_byte))
 
-        // ==================== FilterSize = 3 (Pad = 1) ====================
-        TRY_INSTANCE( 8,  8, 3, 1, 1, 1, 8, 2, 2, 2, 2);
-        TRY_INSTANCE(16, 16, 3, 1, 1, 1, 8, 1, 4, 8, 8);
-        TRY_INSTANCE(16, 16, 3, 2, 2, 1, 2, 1, 4, 8, 8);
-        TRY_INSTANCE(14, 28, 3, 2, 2, 1, 1, 2, 4, 8, 8);
-        TRY_INSTANCE(28, 28, 3, 1, 1, 1, 1, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 3, 1, 1, 1, 1, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 3, 2, 2, 1, 2, 4, 4, 8, 8);
+        // ============================================================================
+        // FilterSize = 3, Pad = 1
+        // ============================================================================
+        // --- 3x3 stride=1 ---
+        TRY_INSTANCE( 8,  8, 3, 1, 1, 1, 8, 2, 2, 2, 2);   // small tile, large batch
+        TRY_INSTANCE(16, 16, 3, 1, 1, 1, 8, 1, 4, 8, 8);   // mid tile, large batch
+        TRY_INSTANCE(16, 16, 3, 1, 1, 1, 1, 2, 2, 2, 2);   // tiny image fallback (H/W<=4)
+        TRY_INSTANCE(28, 28, 3, 1, 1, 1, 1, 4, 4, 8, 8);   // large tile, N=1
+        TRY_INSTANCE(32, 32, 3, 1, 1, 1, 1, 4, 4, 8, 8);   // large tile, N=1
 
-        // ==================== FilterSize = 5 (Pad = 2) ====================
-        TRY_INSTANCE( 8,  8, 5, 1, 1, 2, 1, 1, 1, 1, 1);
-        TRY_INSTANCE( 8,  8, 5, 1, 1, 2, 8, 2, 2, 2, 2);
-        TRY_INSTANCE( 8,  8, 5, 2, 2, 2, 4, 2, 2, 2, 2);
-        TRY_INSTANCE(16, 16, 5, 1, 1, 2, 1, 1, 4, 8, 8);
-        TRY_INSTANCE(16, 16, 5, 1, 1, 2, 8, 1, 4, 8, 8);
-        TRY_INSTANCE(14, 28, 5, 2, 2, 2, 2, 2, 4, 8, 8);
-        TRY_INSTANCE(16, 32, 5, 2, 2, 2, 4, 1, 8, 8, 8);
-        TRY_INSTANCE(28, 28, 5, 1, 1, 2, 8, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 5, 1, 1, 2, 4, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 5, 2, 2, 2, 1, 4, 4, 8, 8);
+        // --- 3x3 stride=2 ---
+        TRY_INSTANCE(16, 16, 3, 2, 2, 1, 2, 1, 4, 8, 8);   // mid tile, N=2/4
+        TRY_INSTANCE(16, 16, 3, 2, 2, 1, 1, 1, 4, 8, 8);   // mid tile, N=1
+        TRY_INSTANCE(16, 16, 3, 2, 2, 1, 1, 2, 2, 8, 8);   // small output (Ho/Wo~7-14)
+        TRY_INSTANCE(16, 16, 3, 2, 2, 1, 1, 2, 2, 2, 2);   // tiny image fallback (H/W<=4)
+        TRY_INSTANCE(14, 28, 3, 2, 2, 1, 1, 2, 4, 8, 8);   // asymmetric tile
+        TRY_INSTANCE(32, 32, 3, 2, 2, 1, 2, 4, 4, 8, 8);   // large tile, N=2/4
+        TRY_INSTANCE(32, 32, 3, 2, 2, 1, 1, 4, 4, 4, 4);   // large tile, reduced vec
+        TRY_INSTANCE(32, 32, 3, 2, 2, 1, 1, 4, 4, 8, 8);   // large tile, N=1
+        TRY_INSTANCE(32, 32, 3, 2, 2, 1, 1, 2, 8, 8, 8);   // large output (Ho/Wo~256-512)
 
-        // ==================== FilterSize = 7 (Pad = 3) ====================
-        TRY_INSTANCE( 8,  8, 7, 1, 1, 3, 1, 1, 1, 1, 1);
-        TRY_INSTANCE( 8,  8, 7, 1, 1, 3, 8, 2, 2, 2, 2);
-        TRY_INSTANCE( 8,  8, 7, 2, 2, 3, 4, 2, 2, 2, 2);
-        TRY_INSTANCE(16, 16, 7, 1, 1, 3, 1, 1, 4, 8, 8);
-        TRY_INSTANCE(16, 16, 7, 1, 1, 3, 8, 1, 4, 8, 8);
-        TRY_INSTANCE(16, 16, 7, 2, 2, 3, 2, 1, 4, 8, 8);
-        TRY_INSTANCE(14, 28, 7, 2, 2, 3, 2, 2, 4, 8, 8);
-        TRY_INSTANCE(16, 32, 7, 2, 2, 3, 4, 1, 8, 8, 8);
-        TRY_INSTANCE(28, 28, 7, 1, 1, 3, 1, 4, 4, 8, 8);
-        TRY_INSTANCE(28, 28, 7, 1, 1, 3, 8, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 7, 1, 1, 3, 1, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 7, 1, 1, 3, 4, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 7, 2, 2, 3, 2, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 7, 2, 2, 3, 1, 4, 4, 8, 8);
+        // ============================================================================
+        // FilterSize = 5, Pad = 2
+        // ============================================================================
+        // --- 5x5 stride=1 ---
+        TRY_INSTANCE( 8,  8, 5, 1, 1, 2, 1, 1, 1, 1, 1);   // minimal config
+        TRY_INSTANCE( 8,  8, 5, 1, 1, 2, 8, 2, 2, 2, 2);   // small tile, large batch
+        TRY_INSTANCE(16, 16, 5, 1, 1, 2, 1, 1, 4, 8, 8);   // mid tile, N=1
+        TRY_INSTANCE(16, 16, 5, 1, 1, 2, 8, 1, 4, 8, 8);   // mid tile, large batch
+        TRY_INSTANCE(28, 28, 5, 1, 1, 2, 8, 4, 4, 8, 8);   // large tile, large batch
+        TRY_INSTANCE(32, 32, 5, 1, 1, 2, 4, 4, 4, 8, 8);   // large tile, mid batch
 
-        // ==================== FilterSize = 9 (Pad = 4) ====================
-        TRY_INSTANCE( 8,  8, 9, 1, 1, 4, 1, 1, 1, 1, 1);
-        TRY_INSTANCE( 8,  8, 9, 1, 1, 4, 8, 2, 2, 2, 2);
-        TRY_INSTANCE( 8,  8, 9, 2, 2, 4, 4, 2, 2, 2, 2);
-        TRY_INSTANCE(16, 16, 9, 1, 1, 4, 1, 1, 4, 8, 8);
-        TRY_INSTANCE(16, 16, 9, 1, 1, 4, 8, 1, 4, 8, 8);
-        TRY_INSTANCE(16, 16, 9, 2, 2, 4, 2, 1, 4, 8, 8);
-        TRY_INSTANCE(14, 28, 9, 2, 2, 4, 2, 2, 4, 8, 8);
-        TRY_INSTANCE(16, 32, 9, 2, 2, 4, 4, 1, 8, 8, 8);
-        TRY_INSTANCE(28, 28, 9, 1, 1, 4, 1, 4, 4, 8, 8);
-        TRY_INSTANCE(28, 28, 9, 1, 1, 4, 8, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 9, 1, 1, 4, 1, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 9, 1, 1, 4, 4, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 9, 2, 2, 4, 2, 4, 4, 8, 8);
-        TRY_INSTANCE(32, 32, 9, 2, 2, 4, 1, 4, 4, 8, 8);
+        // --- 5x5 stride=2 ---
+        TRY_INSTANCE( 8,  8, 5, 2, 2, 2, 4, 2, 2, 2, 2);   // small tile, N=4
+        TRY_INSTANCE( 8,  8, 5, 2, 2, 2, 1, 2, 2, 2, 2);   // small tile, N=1
+        TRY_INSTANCE(16, 16, 5, 2, 2, 2, 1, 1, 4, 8, 8);   // mid tile, N=1
+        TRY_INSTANCE(16, 16, 5, 2, 2, 2, 1, 2, 2, 8, 8);   // small output (Ho/Wo~7-14)
+        TRY_INSTANCE(14, 28, 5, 2, 2, 2, 2, 2, 4, 8, 8);   // asymmetric tile
+        TRY_INSTANCE(16, 32, 5, 2, 2, 2, 4, 1, 8, 8, 8);   // wide tile
+        TRY_INSTANCE(32, 32, 5, 2, 2, 2, 1, 4, 4, 4, 4);   // large tile, reduced vec
+        TRY_INSTANCE(32, 32, 5, 2, 2, 2, 1, 4, 4, 8, 8);   // large tile, N=1
+        TRY_INSTANCE(32, 32, 5, 2, 2, 2, 1, 2, 8, 8, 8);   // large output (Ho/Wo~256-512)
+
+        // ============================================================================
+        // FilterSize = 7, Pad = 3
+        // ============================================================================
+        // --- 7x7 stride=1 ---
+        TRY_INSTANCE( 8,  8, 7, 1, 1, 3, 1, 1, 1, 1, 1);   // minimal config
+        TRY_INSTANCE( 8,  8, 7, 1, 1, 3, 8, 2, 2, 2, 2);   // small tile, large batch
+        TRY_INSTANCE(16, 16, 7, 1, 1, 3, 1, 1, 4, 8, 8);   // mid tile, N=1
+        TRY_INSTANCE(16, 16, 7, 1, 1, 3, 8, 1, 4, 8, 8);   // mid tile, large batch
+        TRY_INSTANCE(28, 28, 7, 1, 1, 3, 1, 4, 4, 8, 8);   // large tile, N=1
+        TRY_INSTANCE(28, 28, 7, 1, 1, 3, 8, 4, 4, 8, 8);   // large tile, large batch
+        TRY_INSTANCE(32, 32, 7, 1, 1, 3, 1, 4, 4, 8, 8);   // large tile, N=1
+        TRY_INSTANCE(32, 32, 7, 1, 1, 3, 4, 4, 4, 8, 8);   // large tile, mid batch
+
+        // --- 7x7 stride=2 ---
+        TRY_INSTANCE( 8,  8, 7, 2, 2, 3, 4, 2, 2, 2, 2);   // small tile, N=4
+        TRY_INSTANCE(16, 16, 7, 2, 2, 3, 2, 1, 4, 8, 8);   // mid tile, N=2
+        TRY_INSTANCE(14, 28, 7, 2, 2, 3, 2, 2, 4, 8, 8);   // asymmetric tile
+        TRY_INSTANCE(16, 32, 7, 2, 2, 3, 4, 1, 8, 8, 8);   // wide tile
+        TRY_INSTANCE(32, 32, 7, 2, 2, 3, 2, 4, 4, 8, 8);   // large tile, N=2
+        TRY_INSTANCE(32, 32, 7, 2, 2, 3, 1, 4, 4, 8, 8);   // large tile, N=1
+
+        // ============================================================================
+        // FilterSize = 9, Pad = 4
+        // ============================================================================
+        // --- 9x9 stride=1 ---
+        TRY_INSTANCE( 8,  8, 9, 1, 1, 4, 1, 1, 1, 1, 1);   // minimal config
+        TRY_INSTANCE( 8,  8, 9, 1, 1, 4, 8, 2, 2, 2, 2);   // small tile, large batch
+        TRY_INSTANCE(16, 16, 9, 1, 1, 4, 1, 1, 4, 8, 8);   // mid tile, N=1
+        TRY_INSTANCE(16, 16, 9, 1, 1, 4, 8, 1, 4, 8, 8);   // mid tile, large batch
+        TRY_INSTANCE(28, 28, 9, 1, 1, 4, 1, 4, 4, 8, 8);   // large tile, N=1
+        TRY_INSTANCE(28, 28, 9, 1, 1, 4, 8, 4, 4, 8, 8);   // large tile, large batch
+        TRY_INSTANCE(32, 32, 9, 1, 1, 4, 1, 4, 4, 8, 8);   // large tile, N=1
+        TRY_INSTANCE(32, 32, 9, 1, 1, 4, 4, 4, 4, 8, 8);   // large tile, mid batch
+
+        // --- 9x9 stride=2 ---
+        TRY_INSTANCE( 8,  8, 9, 2, 2, 4, 4, 2, 2, 2, 2);   // small tile, N=4
+        TRY_INSTANCE(16, 16, 9, 2, 2, 4, 2, 1, 4, 8, 8);   // mid tile, N=2
+        TRY_INSTANCE(14, 28, 9, 2, 2, 4, 2, 2, 4, 8, 8);   // asymmetric tile
+        TRY_INSTANCE(16, 32, 9, 2, 2, 4, 4, 1, 8, 8, 8);   // wide tile
+        TRY_INSTANCE(32, 32, 9, 2, 2, 4, 2, 4, 4, 8, 8);   // large tile, N=2
+        TRY_INSTANCE(32, 32, 9, 2, 2, 4, 1, 4, 4, 8, 8);   // large tile, N=1
 
 #undef TRY_INSTANCE
 

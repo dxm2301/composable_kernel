@@ -51,10 +51,6 @@ CK_TILE_DEVICE void depthwise_inner_product(const T& a, const T& b, float& c)
 
 // ==================== Debug Utilities (Matching Original CK Exactly) ====================
 
-/**
- * @brief Dump LDS contents for debugging.
- * Matches original CK's dump_lds function exactly.
- */
 template <typename DataType>
 CK_TILE_DEVICE void dump_lds(DataType* p, index_t totalcount, index_t length)
 {
@@ -89,21 +85,7 @@ CK_TILE_DEVICE void dump_lds(DataType* p, index_t totalcount, index_t length)
     printf("\n");
 }
 
-/**
- * @brief Pipeline for depthwise convolution forward pass.
- *
- * This pipeline implements the core computation logic for depthwise convolution:
- * 1. Load input tile from global memory to LDS (with padding)
- * 2. Load filter weights to registers
- * 3. Perform convolution using circular buffer for filter rows
- * 4. Write output directly to global memory
- *
- * Data flow:
- *   Global Memory (Input) → VGPR → LDS (with padding) → VGPR (circular buffer)
- *   → Compute → VGPR (accumulator) → Global Memory (Output)
- *
- * @tparam Traits_ Traits class defining types and compile-time constants
- */
+/// @brief Pipeline for depthwise convolution forward pass.
 template <typename Traits_>
 struct DepthwiseConvFwdPipeline
 {
@@ -165,9 +147,12 @@ struct DepthwiseConvFwdPipeline
     // Horizontal padding vector type (matching original CK: vector_type<InDataType, Pad_W>)
     using HorizontalPaddingVector = ext_vector_t<InDataType, PadW>;
 
-    /**
-     * @brief Main pipeline operator.
-     */
+    // Compile-time safety check: ensure LdsStride has enough space for right padding clear
+    // When pad_left=0 and data_width=LdsTileW (worst case), pad_right = LdsStride - LdsTileW
+    // Must be >= PadW to prevent HorizontalPaddingVector overflow into next row
+    static_assert(LdsStride - LdsTileW >= PadW,
+        "LdsStride must satisfy LdsStride - LdsTileW >= PadW for safe right padding clear");
+
     CK_TILE_DEVICE void operator()(const InDataType* p_in_base,
                                    const WeiDataType* p_wei_base,
                                    OutDataType* p_out_base,
@@ -433,9 +418,6 @@ struct DepthwiseConvFwdPipeline
     }
 
 private:
-    /**
-     * @brief Load filter weights to registers.
-     */
     CK_TILE_DEVICE static void LoadFilterWeights(const WeiDataType* p_wei,
                                                   index_t wei_y_stride,
                                                   index_t wei_x_stride,
@@ -453,13 +435,7 @@ private:
         });
     }
 
-    // ==================== Strategy 1: Direct Global → LDS ====================
-    /**
-     * @brief Load input tile from global memory directly to LDS with padding.
-     *
-     * This matches original CK's load_global_to_lds_with_padding exactly.
-     * Used when TilePerWave != 1.
-     */
+    // Strategy 1: Direct Global → LDS (used when TilePerWave != 1)
     CK_TILE_DEVICE void load_global_to_lds_with_padding(const InDataType* p_global,
                                                          InDataType* p_lds,
                                                          index_t src_h,
@@ -568,12 +544,7 @@ private:
     static constexpr index_t VerticalPaddingIters = integer_divide_ceil(VerticalPaddingVecs, BlockSize);
     static constexpr index_t HorizontalPaddingIters = integer_divide_ceil(LdsTileH, BlockSize);
 
-    /**
-     * @brief Load data from global memory to VGPR.
-     *
-     * This is copied exactly from original CK's load_data_from_global.
-     * Used when TilePerWave == 1.
-     */
+    // Strategy 2: Global → VGPR → LDS (used when TilePerWave == 1)
     CK_TILE_DEVICE void load_data_from_global(const InDataType* p_global,
                                                index_t src_h,
                                                index_t src_w,
@@ -599,37 +570,50 @@ private:
         const index_t total_vecs = src_h * vecs_per_row;
         
         // Cooperatively load: Global Memory -> VGPR (vector load only)
+        // 
+        // Boundary handling for last vector when src_w is not aligned to InVectorSize:
+        // - remainder = src_w % InVectorSize (number of valid elements in last vector)
+        // - shift_amount = InVectorSize - remainder (how many positions to shift back)
+        // 
+        // Example: src_w=14, InVectorSize=8
+        //   remainder = 14 % 8 = 6 (need positions [8..13], 6 elements)
+        //   shift_amount = 8 - 6 = 2
+        //   Load from position 6 (= 8 - 2), get [6,7,8,9,10,11,12,13]
+        //   Skip first 2 elements, use [8,9,10,11,12,13] ✓
+        //
+        // BUG FIX: Previously used fixed PadW instead of dynamic shift_amount
+        const index_t remainder = src_w % InVectorSize;
+        const index_t shift_amount = (remainder != 0) ? (InVectorSize - remainder) : 0;
+        
         static_for<0, MaxVecsPerThread, 1>{}([&](auto i) {
             const index_t vec_idx = tid + i * total_threads;
-            const index_t row = vec_idx / vecs_per_row;
-            const index_t vec_in_row = vec_idx - row * vecs_per_row;
-            const index_t base_col = vec_in_row * InVectorSize;
-            
-            const index_t global_col = col_offset + base_col;
-            auto coord = make_tensor_coordinate(src_desc, make_multi_index(row, global_col));
-            const bool is_valid = coordinate_has_valid_offset_assuming_top_index_is_valid(src_desc, coord);
-            const bool is_last_vec = (vec_idx == total_vecs - 1);
-            const bool need_shift = is_last_vec && (src_w % InVectorSize != 0);
+            // NOTE: Boundary check if(vec_idx < total_vecs) is omitted for performance (~30-50% regression).
+            // Edge cases (e.g., H<Y or W<X) are rejected in DepthwiseConvFwdKernel::IsSupportedArgument().
+            {
+                const index_t row = vec_idx / vecs_per_row;
+                const index_t vec_in_row = vec_idx - row * vecs_per_row;
+                const index_t base_col = vec_in_row * InVectorSize;
+                
+                const index_t global_col = col_offset + base_col;
+                auto coord = make_tensor_coordinate(src_desc, make_multi_index(row, global_col));
+                const bool is_valid = coordinate_has_valid_offset_assuming_top_index_is_valid(src_desc, coord);
+                const bool is_last_vec = (vec_idx == total_vecs - 1);
+                const bool need_shift = is_last_vec && (remainder != 0);
 
-            const index_t src_offset = coord.get_offset() - (__builtin_expect(need_shift, false) ? PadW : 0);
-            auto loaded_buf = src_buf.template get<src_vector_t>(src_offset, 0, is_valid);
-            src_vector_t loaded_vec = bit_cast<src_vector_t>(loaded_buf);
-            
+                const index_t src_offset = coord.get_offset() - (__builtin_expect(need_shift, false) ? shift_amount : 0);
+                auto loaded_buf = src_buf.template get<src_vector_t>(src_offset, 0, is_valid);
+                src_vector_t loaded_vec = bit_cast<src_vector_t>(loaded_buf);
+                
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wundefined-reinterpret-cast"
-            tmp_in[i * BlockSize] = __builtin_expect(need_shift, false)
-                ? *reinterpret_cast<const src_vector_t*>(reinterpret_cast<const InDataType*>(&loaded_vec) + PadW)
-                : loaded_vec;
+                tmp_in[i * BlockSize] = __builtin_expect(need_shift, false)
+                    ? *reinterpret_cast<const src_vector_t*>(reinterpret_cast<const InDataType*>(&loaded_vec) + shift_amount)
+                    : loaded_vec;
 #pragma clang diagnostic pop
+            }
         });
     }
 
-    /**
-     * @brief Write data from VGPR to LDS.
-     *
-     * This matches original CK's write_data_to_lds exactly.
-     * Used when TilePerWave == 1.
-     */
     CK_TILE_DEVICE void write_data_to_lds(InDataType* p_lds,
                                            index_t src_h,
                                            index_t src_w,
@@ -639,31 +623,27 @@ private:
         const index_t total_threads = blockDim.x * blockDim.y;
 
         const index_t vecs_per_row = (src_w + InVectorSize - 1) / InVectorSize;
-        [[maybe_unused]] const index_t total_vecs = src_h * vecs_per_row;
+        const index_t total_vecs = src_h * vecs_per_row;
 
         // Cooperatively write: VGPR -> LDS (vector write)
         auto* p_lds_vec = reinterpret_cast<InVector*>(p_lds);
 
         static_for<0, MaxVecsPerThread, 1>{}([&](auto i) {
             const index_t vec_idx = tid + i * total_threads;
-            const index_t row = vec_idx / vecs_per_row;
-            const index_t vec_in_row = vec_idx - row * vecs_per_row;
-            const index_t base_col = vec_in_row * InVectorSize;
+            // NOTE: Boundary check if(vec_idx < total_vecs) is omitted for performance (~30-50% regression).
+            // Edge cases (e.g., H<Y or W<X) are rejected in DepthwiseConvFwdKernel::IsSupportedArgument().
+            {
+                const index_t row = vec_idx / vecs_per_row;
+                const index_t vec_in_row = vec_idx - row * vecs_per_row;
+                const index_t base_col = vec_in_row * InVectorSize;
 
-            const index_t lds_vec_idx = (row * LdsStride + base_col) / InVectorSize;
+                const index_t lds_vec_idx = (row * LdsStride + base_col) / InVectorSize;
 
-            p_lds_vec[lds_vec_idx] = tmp_in[i * BlockSize];
+                p_lds_vec[lds_vec_idx] = tmp_in[i * BlockSize];
+            }
         });
     }
 
-    /**
-     * @brief Clear LDS boundary padding regions.
-     *
-     * This matches original CK's clear_lds_boundary_padding exactly.
-     * Uses vector writes for efficiency, no runtime for loops.
-     * 
-     * Note: Original CK uses lane_id (0-63) which equals threadIdx.x when BlockSize=64.
-     */
     CK_TILE_DEVICE void clear_lds_boundary_padding(InDataType* p_lds,
                                                     index_t data_height,
                                                     index_t data_width,
@@ -725,7 +705,10 @@ private:
             });
         }
 
-        // Clear right padding columns (matching original CK exactly)
+        // Clear right padding columns
+        // Safety guarantee: LdsStride is defined such that LdsStride - LdsTileW >= PadW
+        // Since data_width <= LdsTileW, we have pad_right = LdsStride - pad_left - data_width >= PadW
+        // This ensures HorizontalPaddingVector (size=PadW) writes never overflow into next row
         const index_t pad_right = LdsStride - pad_left - data_width;
         if(pad_right > 0)
         {
@@ -740,9 +723,6 @@ private:
         }
     }
 
-    /**
-     * @brief Run convolution computation using circular buffer.
-     */
     CK_TILE_DEVICE void RunConvolution(InVectorInternal* p_lds_subtile,
                                         const WeiVector* weight,
                                         const WeiVector* weight_odd,

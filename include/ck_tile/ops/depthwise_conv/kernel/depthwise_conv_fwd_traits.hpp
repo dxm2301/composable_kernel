@@ -7,35 +7,7 @@
 
 namespace ck_tile {
 
-/**
- * @brief Traits class for depthwise convolution forward pass.
- *
- * This class defines compile-time constants and type aliases for the depthwise
- * convolution operation. Unlike grouped convolution which uses implicit GEMM,
- * depthwise convolution has C=1 and K=1 per group, so it's computed directly
- * in spatial domain.
- *
- * @tparam InDataType_      Input tensor data type (e.g., fp16_t, float)
- * @tparam WeiDataType_     Weight tensor data type
- * @tparam AccDataType_     Accumulation data type (typically float)
- * @tparam OutDataType_     Output tensor data type
- * @tparam BlockSize_       Number of threads per block (typically 64 or 256)
- * @tparam TileH_           Output tile height
- * @tparam TileW_           Output tile width
- * @tparam FilterH_         Convolution kernel height
- * @tparam FilterW_         Convolution kernel width
- * @tparam StrideH_         Vertical stride
- * @tparam StrideW_         Horizontal stride
- * @tparam DilationH_       Vertical dilation
- * @tparam DilationW_       Horizontal dilation
- * @tparam PadH_            Vertical padding (same for top/bottom)
- * @tparam PadW_            Horizontal padding (same for left/right)
- * @tparam NBatch_          Number of batches processed per block
- * @tparam SubTileH_        Sub-tile height (per-thread output)
- * @tparam SubTileW_        Sub-tile width (per-thread output)
- * @tparam InVectorSize_    Input vector load width
- * @tparam OutVectorSize_   Output vector store width
- */
+/// @brief Traits class for depthwise convolution forward pass (C=1, K=1 per group).
 template <typename InDataType_,
           typename WeiDataType_,
           typename AccDataType_,
@@ -115,7 +87,14 @@ struct DepthwiseConvFwdTraits
     static constexpr index_t ThreadPerTile = WaveSize / TilePerWave;
 
     // LDS stride (aligned for vector access)
-    static constexpr index_t LdsStride = integer_least_multiple(LdsTileW, InVectorSize);
+    // Must satisfy: LdsStride - LdsTileW >= PadW (for safe right padding clear)
+    // This ensures HorizontalPaddingVector (size=PadW) writes won't overflow into next row
+    // when data_width = LdsTileW (worst case for middle tiles)
+    static constexpr index_t LdsStrideBase = integer_least_multiple(LdsTileW, InVectorSize);
+    static constexpr index_t LdsStrideMin  = LdsTileW + PadW;  // minimum to avoid overflow
+    static constexpr index_t LdsStride = (LdsStrideBase >= LdsStrideMin)
+        ? LdsStrideBase
+        : integer_least_multiple(LdsStrideMin, InVectorSize);
 
     // LDS size per tile
     static constexpr index_t LdsTileSize = LdsTileH * LdsStride;
@@ -149,10 +128,6 @@ struct DepthwiseConvFwdTraits
     // NBatch validation moved to runtime check in IsSupportedArgument
     // NBatch should ideally be divisible by TilePerWave for optimal performance
 };
-
-/**
- * @brief Commonly used depthwise conv traits configurations.
- */
 
 // 3x3 kernel, stride 1, fp16
 template <typename InDataType,

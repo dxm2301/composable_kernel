@@ -4,11 +4,11 @@
 #include "common.hpp"
 
 // kernel data types
-using InKernelDataType  = FP16;
-using WeiKernelDataType = FP16;
+using InKernelDataType  = FP32;
+using WeiKernelDataType = FP32;
 using AccDataType       = FP32;
-using CShuffleDataType  = FP16;
-using OutKernelDataType = FP16;
+using CShuffleDataType  = FP32;
+using OutKernelDataType = FP32;
 
 // tensor data types
 using InUserDataType  = InKernelDataType;
@@ -19,6 +19,7 @@ using InElementOp  = PassThrough;
 using WeiElementOp = PassThrough;
 using OutElementOp = PassThrough;
 
-#include "run_depthwise_conv_fwd_dl_example.inc"
+#include "run_depthwise_conv_fwd_example.inc"
 
-int main(int argc, char* argv[]) { return !run_depthwise_conv_fwd_dl_example(argc, argv); }
+int main(int argc, char* argv[]) { return !run_depthwise_conv_fwd_example(argc, argv); }
+

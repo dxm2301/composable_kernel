@@ -7,19 +7,7 @@
 
 namespace ck_tile {
 
-/**
- * @brief Shape configuration for depthwise convolution forward pass.
- *
- * This structure defines the tile shape and work distribution for depthwise
- * convolution. Unlike GEMM which has M×N×K dimensions, depthwise conv operates
- * in spatial domain with H×W dimensions.
- *
- * @tparam TileOutH_    Output tile height
- * @tparam TileOutW_    Output tile width
- * @tparam SubTileH_    Per-thread output height
- * @tparam SubTileW_    Per-thread output width
- * @tparam NBatch_      Number of batches per block
- */
+/// @brief Shape configuration for depthwise convolution forward pass.
 template <index_t TileOutH_,
           index_t TileOutW_,
           index_t SubTileH_,
@@ -51,18 +39,7 @@ struct DepthwiseConvFwdShape
     static_assert(NBatch % TilePerWave == 0, "NBatch must be divisible by TilePerWave");
 };
 
-/**
- * @brief Filter parameter configuration.
- *
- * @tparam FilterH_     Filter height
- * @tparam FilterW_     Filter width
- * @tparam StrideH_     Vertical stride
- * @tparam StrideW_     Horizontal stride
- * @tparam DilationH_   Vertical dilation
- * @tparam DilationW_   Horizontal dilation
- * @tparam PadH_        Vertical padding
- * @tparam PadW_        Horizontal padding
- */
+/// @brief Filter parameter configuration.
 template <index_t FilterH_,
           index_t FilterW_,
           index_t StrideH_,
@@ -109,9 +86,7 @@ struct DepthwiseConvFilterParams
     }
 };
 
-/**
- * @brief Common filter configurations.
- */
+// Common filter configurations
 using FilterParams_3x3_S1_P1 = DepthwiseConvFilterParams<3, 3, 1, 1, 1, 1, 1, 1>;
 using FilterParams_3x3_S2_P1 = DepthwiseConvFilterParams<3, 3, 2, 2, 1, 1, 1, 1>;
 using FilterParams_5x5_S1_P2 = DepthwiseConvFilterParams<5, 5, 1, 1, 1, 1, 2, 2>;

@@ -9,6 +9,19 @@
 #include <string>
 #include <type_traits>
 
+// Additional headers for SystemInfo (timestamp, hostname, OS info)
+#include <sstream>
+#include <chrono>
+#include <ctime>
+#include <cstdlib>  // For std::getenv, std::strtoul
+#include <random>   // For std::random_device
+
+#ifdef __linux__
+#include <unistd.h>
+#include <sys/utsname.h>
+#endif
+// Note: <iomanip> is included via "ck/library/utility/check_err.hpp"
+
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/convolution_forward_specialization.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
@@ -89,11 +102,112 @@ using WeightLayout = typename CommonLayoutSettingSelector<NDimSpatial>::WeightLa
 template <ck::index_t NDimSpatial>
 using OutputLayout = typename CommonLayoutSettingSelector<NDimSpatial>::OutputLayout;
 
+// System information utilities for benchmark logging (MIOpen-compatible)
+struct SystemInfo
+{
+    static std::string get_timestamp()
+    {
+        auto now = std::chrono::system_clock::now();
+        auto time_t_now = std::chrono::system_clock::to_time_t(now);
+        std::tm* gmt = std::gmtime(&time_t_now);
+        std::ostringstream oss;
+        oss << std::put_time(gmt, "%Y-%m-%d %H:%M:%S") << " UTC";
+        return oss.str();
+    }
+
+    static std::string get_hostname()
+    {
+#ifdef __linux__
+        char hostname[256];
+        if(gethostname(hostname, sizeof(hostname)) == 0)
+        {
+            return std::string(hostname);
+        }
+#endif
+        return "unknown";
+    }
+
+    static std::string get_os_info()
+    {
+#ifdef __linux__
+        struct utsname buf;
+        if(uname(&buf) == 0)
+        {
+            return std::string(buf.sysname) + " " + std::string(buf.release);
+        }
+#endif
+        return "unknown";
+    }
+
+    static std::string get_rocm_version()
+    {
+        std::ostringstream oss;
+#if defined(HIP_VERSION_MAJOR) && defined(HIP_VERSION_MINOR) && defined(HIP_VERSION_PATCH)
+        oss << HIP_VERSION_MAJOR << "." << HIP_VERSION_MINOR << "." << HIP_VERSION_PATCH;
+#else
+        oss << "unknown";
+#endif
+        return oss.str();
+    }
+
+    static std::string get_gpu_name()
+    {
+        hipDeviceProp_t props{};
+        int device;
+        if(hipGetDevice(&device) != hipSuccess)
+        {
+            return "unknown";
+        }
+        if(hipGetDeviceProperties(&props, device) != hipSuccess)
+        {
+            return "unknown";
+        }
+        return std::string(props.name);
+    }
+
+    static std::string get_full_env_string()
+    {
+        std::ostringstream oss;
+        oss << "Timestamp: " << get_timestamp() << "; "
+            << "Host Name: " << get_hostname() << "; "
+            << "OS: " << get_os_info() << "; "
+            << "ROCm: " << get_rocm_version() << "; "
+            << "GPU: " << get_gpu_name();
+        return oss.str();
+    }
+
+    // PRNG seed: uses MIOPEN_DEBUG_DRIVER_PRNG_SEED env var (default: 12345678, 0 = random)
+    static unsigned int get_prng_seed()
+    {
+        static unsigned int seed = [] {
+            const char* env_seed = std::getenv("MIOPEN_DEBUG_DRIVER_PRNG_SEED");
+            unsigned int external_seed = 12345678u;  // Default like MIOpen
+            
+            if(env_seed != nullptr)
+            {
+                external_seed = static_cast<unsigned int>(std::strtoul(env_seed, nullptr, 10));
+            }
+            
+            // If env var is 0, use random device; otherwise use env var value (or default)
+            if(external_seed == 0)
+            {
+                std::random_device rd;
+                return rd();
+            }
+            return external_seed;
+        }();
+        return seed;
+    }
+};
+
 struct ExecutionConfig final
 {
     bool do_verification = true;
     int init_method      = 1;
     bool time_kernel     = true;
+    int verbosity        = 1;  // 0=no verify, 1=standard, 2=debug
+    
+    bool is_debug_mode() const { return verbosity >= 2; }
 };
 
 #define DefaultConvParam                                                       \
@@ -104,7 +218,7 @@ struct ExecutionConfig final
 
 inline void print_help_msg()
 {
-    std::cerr << "arg1: verification (0=no, 1=yes)\n"
+    std::cerr << "arg1: verification/verbosity (0=no verify, 1=standard mode, 2=debug mode)\n"
               << "arg2: initialization (0=no init, 1=integer value, 2=decimal value)\n"
               << "arg3: time kernel (0=no, 1=yes)\n"
               << ck::utils::conv::get_conv_param_parser_helper_msg() << std::endl;
@@ -130,14 +244,16 @@ inline bool parse_cmd_args(int argc,
     // catch only ExecutionConfig arguments
     else if(argc == threshold_to_catch_partial_args)
     {
-        config.do_verification = std::stoi(argv[1]);
+        config.verbosity       = std::stoi(argv[1]);
+        config.do_verification = (config.verbosity > 0);
         config.init_method     = std::stoi(argv[2]);
         config.time_kernel     = std::stoi(argv[3]);
     }
     // catch both ExecutionConfig & ConvParam arguments
     else if(threshold_to_catch_all_args < argc && ((argc - threshold_to_catch_all_args) % 3 == 0))
     {
-        config.do_verification = std::stoi(argv[1]);
+        config.verbosity       = std::stoi(argv[1]);
+        config.do_verification = (config.verbosity > 0);
         config.init_method     = std::stoi(argv[2]);
         config.time_kernel     = std::stoi(argv[3]);
 
