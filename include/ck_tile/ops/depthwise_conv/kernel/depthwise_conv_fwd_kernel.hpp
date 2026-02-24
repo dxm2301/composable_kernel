@@ -5,7 +5,6 @@
 
 #include "ck_tile/core.hpp"
 #include "ck_tile/ops/depthwise_conv/kernel/depthwise_conv_fwd_traits.hpp"
-#include "ck_tile/ops/depthwise_conv/kernel/depthwise_conv_fwd_shape.hpp"
 
 namespace ck_tile {
 
@@ -189,13 +188,6 @@ struct DepthwiseConvFwdKernel
 
         // Check batch size is divisible by NBatch
         if(args.N % NBatch != 0)
-        {
-            return false;
-        }
-
-        // Check TotalSubTiles <= WaveSize (compile-time check in Traits, but verify at runtime)
-        constexpr index_t total_subtiles = Traits::TotalSubTiles;
-        if(total_subtiles > Traits::WaveSize)
         {
             return false;
         }

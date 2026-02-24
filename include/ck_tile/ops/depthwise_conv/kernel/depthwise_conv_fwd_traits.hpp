@@ -129,57 +129,9 @@ struct DepthwiseConvFwdTraits
     // NBatch should ideally be divisible by TilePerWave for optimal performance
 };
 
-// 3x3 kernel, stride 1, fp16
-template <typename InDataType,
-          typename WeiDataType,
-          typename AccDataType,
-          typename OutDataType>
-using DepthwiseConvFwdTraits_3x3_S1 = DepthwiseConvFwdTraits<InDataType,
-                                                             WeiDataType,
-                                                             AccDataType,
-                                                             OutDataType,
-                                                             64,   // BlockSize
-                                                             16,   // TileH
-                                                             16,   // TileW
-                                                             3,    // FilterH
-                                                             3,    // FilterW
-                                                             1,    // StrideH
-                                                             1,    // StrideW
-                                                             1,    // DilationH
-                                                             1,    // DilationW
-                                                             1,    // PadH
-                                                             1,    // PadW
-                                                             64,   // NBatch
-                                                             4,    // SubTileH
-                                                             4,    // SubTileW
-                                                             8,    // InVectorSize
-                                                             8>;   // OutVectorSize
-
-// 5x5 kernel, stride 1, fp16
-template <typename InDataType,
-          typename WeiDataType,
-          typename AccDataType,
-          typename OutDataType>
-using DepthwiseConvFwdTraits_5x5_S1 = DepthwiseConvFwdTraits<InDataType,
-                                                             WeiDataType,
-                                                             AccDataType,
-                                                             OutDataType,
-                                                             64,   // BlockSize
-                                                             16,   // TileH
-                                                             16,   // TileW
-                                                             5,    // FilterH
-                                                             5,    // FilterW
-                                                             1,    // StrideH
-                                                             1,    // StrideW
-                                                             1,    // DilationH
-                                                             1,    // DilationW
-                                                             2,    // PadH
-                                                             2,    // PadW
-                                                             64,   // NBatch
-                                                             4,    // SubTileH
-                                                             4,    // SubTileW
-                                                             8,    // InVectorSize
-                                                             8>;   // OutVectorSize
+// TODO: Future refactoring — split DepthwiseConvFwdTraits into Shape + FilterParams + Traits
+// to align with ck_tile conventions (see TileGemmShape/TileGemmTraits pattern).
+// This would reduce the 20 template parameters and improve reusability across configurations.
 
 } // namespace ck_tile
 
