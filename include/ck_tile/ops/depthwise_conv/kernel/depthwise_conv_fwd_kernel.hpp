@@ -1,5 +1,5 @@
+// Copyright (c) Advanced Micro Devices, Inc., or its affiliates.
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
 
 #pragma once
 
@@ -11,25 +11,22 @@ namespace ck_tile {
 /// @brief Host-side arguments for depthwise convolution forward pass.
 struct DepthwiseConvFwdHostArgs
 {
-    const void* p_in;   // Input tensor pointer
-    const void* p_wei;  // Weight tensor pointer
-    void* p_out;        // Output tensor pointer
+    const void* p_in;
+    const void* p_wei;
+    void* p_out;
 
-    // Tensor dimensions [G, N, C, H, W] for input/output, [G, K, C, Y, X] for weight
-    index_t G;  // Number of groups
-    index_t N;  // Batch size
-    index_t C;  // Input channels per group (should be 1 for depthwise)
-    index_t K;  // Output channels per group (should be 1 for depthwise)
+    // Layout — Input: [G,N,C,Hi,Wi], Weight: [G,K,C,Y,X], Output: [G,N,K,Ho,Wo]
+    index_t G;
+    index_t N;
+    index_t C;
+    index_t K;
+    index_t Hi;
+    index_t Wi;
+    index_t Ho;
+    index_t Wo;
+    index_t Y;
+    index_t X;
 
-    // Spatial dimensions
-    index_t Hi;  // Input height
-    index_t Wi;  // Input width
-    index_t Ho;  // Output height
-    index_t Wo;  // Output width
-    index_t Y;   // Filter height
-    index_t X;   // Filter width
-
-    // Convolution parameters
     index_t stride_h;
     index_t stride_w;
     index_t dilation_h;
@@ -37,7 +34,7 @@ struct DepthwiseConvFwdHostArgs
     index_t pad_h;
     index_t pad_w;
 
-    // Tensor strides (for GNCHW/GKCYX layout, matching original CK)
+    // Tensor strides, indexed by dimension — In: GNCHW, Wei: GKCYX, Out: GNKHW
     std::array<index_t, 5> in_strides;   // [g_stride, n_stride, c_stride, h_stride, w_stride]
     std::array<index_t, 5> wei_strides;  // [g_stride, k_stride, c_stride, y_stride, x_stride]
     std::array<index_t, 5> out_strides;  // [g_stride, n_stride, k_stride, h_stride, w_stride]
@@ -52,12 +49,10 @@ struct DepthwiseConvFwdKernelArgs
     using WeiDataType = typename Traits::WeiDataType;
     using OutDataType = typename Traits::OutDataType;
 
-    // Pointers
     const InDataType* p_in;
     const WeiDataType* p_wei;
     OutDataType* p_out;
 
-    // Dimensions
     index_t G;
     index_t N;
     index_t Hi;
@@ -65,7 +60,6 @@ struct DepthwiseConvFwdKernelArgs
     index_t Ho;
     index_t Wo;
 
-    // Strides
     index_t in_g_stride;
     index_t in_n_stride;
     index_t in_h_stride;
@@ -93,15 +87,13 @@ struct DepthwiseConvFwdKernel
     using OutDataType = typename Traits::OutDataType;
     using KernelArgs  = DepthwiseConvFwdKernelArgs<Traits>;
 
-    // Tile configuration
     static constexpr index_t BlockSize   = Traits::BlockSize;
-    static constexpr index_t kBlockSize  = BlockSize;  // Alias for make_kernel compatibility
+    static constexpr index_t kBlockSize  = BlockSize;  // Required by ck_tile::make_kernel
     static constexpr index_t TileOutH    = Traits::TileOutH;
     static constexpr index_t TileOutW    = Traits::TileOutW;
     static constexpr index_t NBatch      = Traits::NBatch;
     static constexpr index_t TilePerWave = Traits::TilePerWave;
 
-    // LDS size
     static constexpr index_t LdsSize = Traits::LdsSize;
 
     CK_TILE_HOST_DEVICE static constexpr index_t GetSmemSize() { return LdsSize; }
@@ -130,24 +122,18 @@ struct DepthwiseConvFwdKernel
         kargs.Ho = args.Ho;
         kargs.Wo = args.Wo;
 
-        // Input strides (GNCHW layout: [g_stride, n_stride, c_stride, h_stride, w_stride])
+        // Strides [2] (c_stride / k_stride) skipped: C=K=1 for depthwise
         kargs.in_g_stride = args.in_strides[0];
         kargs.in_n_stride = args.in_strides[1];
-        // c_stride = args.in_strides[2], but C=1 for depthwise so not needed
         kargs.in_h_stride = args.in_strides[3];
         kargs.in_w_stride = args.in_strides[4];
 
-        // Weight strides (GKCYX layout: [g_stride, k_stride, c_stride, y_stride, x_stride])
         kargs.wei_g_stride = args.wei_strides[0];
-        // k_stride = args.wei_strides[1], but K=1 for depthwise so not needed
-        // c_stride = args.wei_strides[2], but C=1 for depthwise so not needed
         kargs.wei_y_stride = args.wei_strides[3];
         kargs.wei_x_stride = args.wei_strides[4];
 
-        // Output strides (GNKHW layout: [g_stride, n_stride, k_stride, h_stride, w_stride])
         kargs.out_g_stride = args.out_strides[0];
         kargs.out_n_stride = args.out_strides[1];
-        // k_stride = args.out_strides[2], but K=1 for depthwise so not needed
         kargs.out_h_stride = args.out_strides[3];
         kargs.out_w_stride = args.out_strides[4];
 
@@ -156,61 +142,50 @@ struct DepthwiseConvFwdKernel
 
     CK_TILE_HOST static bool IsSupportedArgument(const DepthwiseConvFwdHostArgs& args)
     {
-        // Check depthwise constraint: C=1, K=1
         if(args.C != 1 || args.K != 1)
         {
             return false;
         }
 
-        // Check filter size matches traits
         if(args.Y != Traits::FilterH || args.X != Traits::FilterW)
         {
             return false;
         }
 
-        // Check stride matches traits
         if(args.stride_h != Traits::StrideH || args.stride_w != Traits::StrideW)
         {
             return false;
         }
 
-        // Check dilation matches traits
         if(args.dilation_h != Traits::DilationH || args.dilation_w != Traits::DilationW)
         {
             return false;
         }
 
-        // Check padding matches traits (symmetric padding required)
+        // Same padding on both sides per dimension
         if(args.pad_h != Traits::PadH || args.pad_w != Traits::PadW)
         {
             return false;
         }
 
-        // Check batch size is divisible by NBatch
         if(args.N % NBatch != 0)
         {
             return false;
         }
 
-        // Check NBatch is divisible by TilePerWave for optimal work distribution
-        constexpr index_t tile_per_wave = Traits::TilePerWave;
-        if(NBatch % tile_per_wave != 0)
+        // Compile-time config filtering (if constexpr to allow invoker to skip invalid instantiations)
+        if constexpr(NBatch % Traits::TilePerWave != 0)
         {
             return false;
         }
 
-        // Check LDS size doesn't exceed hardware limit (64KB for most AMD GPUs)
-        constexpr index_t max_lds_size = 64 * 1024; // 64KB
-        if(Traits::LdsSize > max_lds_size)
+        if constexpr(Traits::LdsSize > 64 * 1024)
         {
             return false;
         }
 
-        // When TilePerWave != 1, load_global_to_lds_with_padding ignores col_offset (global_w_start).
-        // This means it can only handle cases where the entire image fits in one tile.
-        // If the image is larger than the tile, we need multiple tiles with different global_w_start,
-        // which is not supported by load_global_to_lds_with_padding.
-        // So we must reject cases where TilePerWave != 1 and image > tile size.
+        // TilePerWave > 1 requires the entire spatial output to fit in one tile,
+        // because the LDS loader does not support per-tile column offsets.
         if constexpr(Traits::TilePerWave != 1)
         {
             if(args.Ho > Traits::TileOutH || args.Wo > Traits::TileOutW)
@@ -219,8 +194,7 @@ struct DepthwiseConvFwdKernel
             }
         }
 
-        // Reject cases where input spatial size is smaller than kernel size.
-        // These edge cases can cause incorrect results due to boundary handling issues.
+        // Input spatial dims must be >= kernel size to avoid out-of-bound LDS access.
         if(args.Hi < args.Y || args.Wi < args.X)
         {
             return false;
@@ -231,11 +205,9 @@ struct DepthwiseConvFwdKernel
 
     CK_TILE_DEVICE void operator()(KernelArgs kargs) const
     {
-        // Get block indices
         const index_t g_idx       = __builtin_amdgcn_readfirstlane(blockIdx.x);
         const index_t batch_group = __builtin_amdgcn_readfirstlane(blockIdx.y);
 
-        // Calculate base pointers for this block
         const auto* p_in_base =
             kargs.p_in + static_cast<long_index_t>(g_idx) * kargs.in_g_stride +
             static_cast<long_index_t>(batch_group * NBatch) * kargs.in_n_stride;
@@ -246,10 +218,8 @@ struct DepthwiseConvFwdKernel
         auto* p_out_base = kargs.p_out + static_cast<long_index_t>(g_idx) * kargs.out_g_stride +
                            static_cast<long_index_t>(batch_group * NBatch) * kargs.out_n_stride;
 
-        // Allocate LDS
         __shared__ char smem[GetSmemSize()];
 
-        // Run the pipeline
         Pipeline{}(p_in_base,
                    p_wei_base,
                    p_out_base,
@@ -270,4 +240,3 @@ struct DepthwiseConvFwdKernel
 };
 
 } // namespace ck_tile
-

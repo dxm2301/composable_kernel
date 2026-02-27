@@ -4,16 +4,15 @@
 #pragma once
 
 #ifndef __HIPCC_RTC__
-// Reuse existing CK_Tile headers (provides <string>, <sstream>, <hip/hip_runtime.h>)
+// Provides <string>, <hip/hip_runtime.h>
 #include "ck_tile/host/device_prop.hpp"
 #include "ck_tile/host/hip_check_error.hpp"
 
-// Additional headers for timestamp and system info
 #include <iomanip>
 #include <ctime>
 #include <chrono>
-#include <cstdlib>  // For std::getenv, std::strtoul
-#include <random>   // For std::random_device
+#include <cstdlib>
+#include <random>
 
 #ifdef __linux__
 #include <unistd.h>
