@@ -37,7 +37,9 @@ struct DepthwiseConvFwdTraits
     static constexpr index_t NDimSpatial = 2;
 
     static constexpr index_t BlockSize = BlockSize_;
-    static constexpr index_t WaveSize  = 64; // TODO: hardcoded wave64; add wave32 support
+    // TODO: hardcoded wave64; wave32 support requires adjusting TilePerWave/ThreadPerTile
+    // derivation
+    static constexpr index_t WaveSize = 64;
 
     static constexpr index_t TileOutH = TileH_;
     static constexpr index_t TileOutW = TileW_;
@@ -64,7 +66,9 @@ struct DepthwiseConvFwdTraits
 
     static constexpr index_t InVectorSize  = InVectorSize_;
     static constexpr index_t OutVectorSize = OutVectorSize_;
-    static constexpr index_t WeiVectorSize = 2; // Matches v_dot2 instruction operand width
+    // Hardcoded to 2: enables v_dot2 (fp16x2) on FP16 and even/odd weight packing for
+    // 2-column-per-step processing in RunConvolution when StrideW=1
+    static constexpr index_t WeiVectorSize = 2;
 
     static constexpr index_t HRepeats      = integer_divide_ceil(TileOutH, SubTileH);
     static constexpr index_t WRepeats      = integer_divide_ceil(TileOutW, SubTileW);
@@ -75,9 +79,9 @@ struct DepthwiseConvFwdTraits
     // LdsStride must satisfy: LdsStride - LdsTileW >= PadW (padding vector overflow guard)
     static constexpr index_t LdsStrideBase = integer_least_multiple(LdsTileW, InVectorSize);
     static constexpr index_t LdsStrideMin  = LdsTileW + PadW;
-    static constexpr index_t LdsStride = (LdsStrideBase >= LdsStrideMin)
-        ? LdsStrideBase
-        : integer_least_multiple(LdsStrideMin, InVectorSize);
+    static constexpr index_t LdsStride     = (LdsStrideBase >= LdsStrideMin)
+                                                 ? LdsStrideBase
+                                                 : integer_least_multiple(LdsStrideMin, InVectorSize);
 
     static constexpr index_t LdsTileSize  = LdsTileH * LdsStride;
     static constexpr index_t LdsInputSize = LdsTileSize * TilePerWave * sizeof(InDataType);
@@ -87,7 +91,8 @@ struct DepthwiseConvFwdTraits
     using OutVector = ext_vector_t<OutDataType, OutVectorSize>;
     using WeiVector = ext_vector_t<WeiDataType, WeiVectorSize>;
 
-    // Capped at 4 for LDS access
+    // Capped at 4 for LDS access: 4 * sizeof(fp32) = 16 bytes = ds_read_b128 max width.
+    // Conservative for FP16 (could be 8), but keeps the code uniform across data types.
     static constexpr index_t InVectorSizeInternal  = (InVectorSize < 4) ? InVectorSize : 4;
     static constexpr index_t OutVectorSizeInternal = (OutVectorSize < 4) ? OutVectorSize : 4;
 
@@ -95,16 +100,23 @@ struct DepthwiseConvFwdTraits
     using OutVectorInternal = ext_vector_t<OutDataType, OutVectorSizeInternal>;
     using AccVectorInternal = ext_vector_t<AccDataType, OutVectorSizeInternal>;
 
+    static_assert(std::is_same_v<InDataType, fp16_t> || std::is_same_v<InDataType, float>,
+                  "Only fp16 and float are supported currently");
     static_assert(BlockSize == 64 || BlockSize == 128 || BlockSize == 256,
                   "BlockSize must be 64, 128, or 256");
     static_assert(TotalSubTiles <= WaveSize, "TotalSubTiles must not exceed WaveSize");
     static_assert(DilationH == 1 && DilationW == 1, "Only dilation=1 is supported currently");
     static_assert(FilterH == FilterW, "Only square filters are supported currently");
     static_assert(FilterH % 2 == 1, "Only odd filter sizes are supported (3, 5, 7, 9)");
+    static_assert((InVectorSize & (InVectorSize - 1)) == 0 &&
+                      (OutVectorSize & (OutVectorSize - 1)) == 0,
+                  "InVectorSize and OutVectorSize must be powers of 2");
+    static_assert(SubTileH <= TileOutH && SubTileW <= TileOutW,
+                  "SubTile dimensions must not exceed Tile output dimensions");
 };
 
-// TODO: Future refactoring — split DepthwiseConvFwdTraits into Shape + FilterParams + Traits
-// to align with ck_tile conventions (see TileGemmShape/TileGemmTraits pattern).
-// This would reduce the 20 template parameters and improve reusability across configurations.
+// TODO: split DepthwiseConvFwdTraits into Shape (Tile/SubTile/NBatch) +
+//       FilterParams (Filter/Stride/Dilation/Pad) + Traits (DataType/VectorSize),
+//       following the TileGemmShape/TileGemmTraits pattern to reduce template parameters.
 
 } // namespace ck_tile
